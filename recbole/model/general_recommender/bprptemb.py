@@ -85,7 +85,6 @@ class BPRptemb(GeneralRecommender):
     
     def full_sort_predict(self, interaction):
         user = interaction[self.USER_ID]
-
         user_e = self.user_embedding(user)                        # [batch_size, embedding_size]
         all_item_e = self.item_embedding.weight                   # [n_items, embedding_size]
         scores = torch.matmul(user_e, all_item_e.transpose(0, 1)) # [batch_size, n_items]
