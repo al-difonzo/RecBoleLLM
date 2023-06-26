@@ -14,45 +14,46 @@ import torch.nn as nn
 from recbole.model.abstract_recommender import GeneralRecommender
 # from recbole.model.abstract_recommender import ContextRecommender
 from recbole.model.general_recommender import BPRptemb
-# from recbole.model.init import xavier_normal_initialization
-# from recbole.model.loss import BPRLoss
+from recbole.model.init import xavier_normal_initialization
+from recbole.model.loss import BPRLoss
 from recbole.utils import InputType
 from recbole.utils import ModelType
 
 class MLPInteractionBPR(GeneralRecommender):
+    r"""MLPInteractionBPR is a basic MLP model that uses BPR pairwise loss, and allows for pretrained item (user) embeddings."""
     input_type = InputType.PAIRWISE
     # model_type = ModelType.CONTEXT
     model_type = ModelType.GENERAL
     def __init__(self, config, dataset, fine_tune=False, use_pretrained=True, l2_regularization=0.01, hidden_layers=None):
         super(MLPInteractionBPR, self).__init__(config, dataset)
-        print('Ciao mondo!')
-        self = BPRptemb(config, dataset, fine_tune, use_pretrained, l2_regularization)
-        print('TYPE OF SELF:', type(self))
-        if hidden_layers is None:
-            hidden_layers = [64]
+        # self = BPRptemb(config, dataset, fine_tune, use_pretrained, l2_regularization)
+        self.n_users = dataset.user_num
+        self.n_items = dataset.item_num
+        self.embedding_size = config['embedding_size']
+        self.user_embedding = nn.Embedding(self.n_users, self.embedding_size)
+        if use_pretrained:
+            pretrained_item_emb = dataset.get_preload_weight('iid')
+            self.item_embedding = nn.Embedding.from_pretrained(torch.from_numpy(pretrained_item_emb).float(), freeze=not fine_tune)
+        else:
+            self.item_embedding = nn.Embedding(self.n_items, self.embedding_size)
+        self.loss = BPRLoss()
+        self.l2_regularization = l2_regularization
+        self.hidden_layers = [64] if hidden_layers is None else hidden_layers 
+        self.apply(xavier_normal_initialization)
 
-        layers = []
         input_size = self.embedding_size * 2
-        for output_size in hidden_layers:
-            layers.append(nn.Linear(input_size, output_size))
-            layers.append(nn.ReLU())
+        self.layers = []
+        for output_size in self.hidden_layers:
+            self.layers.append(nn.Linear(input_size, output_size))
+            self.layers.append(nn.ReLU())
             input_size = output_size
 
-        layers.append(nn.Linear(input_size, 1))
-
-        self.interaction_net = nn.Sequential(*layers)
+        self.layers.append(nn.Linear(input_size, 1))
+        self.interaction_net = nn.Sequential(*self.layers)
 
     def score(self, user_e, item_e):
         x = torch.cat([user_e, item_e], dim=1)
         scores = self.interaction_net(x).squeeze(1)
-        return scores
-
-    def predict(self, interaction):
-        user = interaction[self.USER_ID]
-        item = interaction[self.ITEM_ID]
-        user_e = self.user_embedding(user)
-        item_e = self.item_embedding(item)
-        scores = self.score(user_e, item_e)
         return scores
 
     def forward(self, user, item):
@@ -79,6 +80,14 @@ class MLPInteractionBPR(GeneralRecommender):
         loss += self.l2_regularization * l2_norm
 
         return loss
+
+    def predict(self, interaction):
+        user = interaction[self.USER_ID]
+        item = interaction[self.ITEM_ID]
+        user_e = self.user_embedding(user)
+        item_e = self.item_embedding(item)
+        scores = self.score(user_e, item_e)
+        return scores
     
     def full_sort_predict(self, interaction):
         user = interaction[self.USER_ID]
