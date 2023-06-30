@@ -24,21 +24,24 @@ class MLPInteractionBPR(GeneralRecommender):
     input_type = InputType.PAIRWISE
     # model_type = ModelType.CONTEXT
     model_type = ModelType.GENERAL
-    def __init__(self, config, dataset, fine_tune=False, use_pretrained=True, l2_regularization=0.01, hidden_layers=None):
+    def __init__(self, config, dataset):
         super(MLPInteractionBPR, self).__init__(config, dataset)
-        # self = BPRptemb(config, dataset, fine_tune, use_pretrained, l2_regularization)
         self.n_users = dataset.user_num
         self.n_items = dataset.item_num
         self.embedding_size = config['embedding_size']
+        self.fine_tune = config['fine_tune']
+        self.use_pretrained = config['use_pretrained']
+        self.l2_regularization = config['l2_regularization']
+        self.hidden_layers = config.get('hidden_layers', [64])
+
         self.user_embedding = nn.Embedding(self.n_users, self.embedding_size)
-        if use_pretrained:
+        if self.use_pretrained:
             pretrained_item_emb = dataset.get_preload_weight('iid')
-            self.item_embedding = nn.Embedding.from_pretrained(torch.from_numpy(pretrained_item_emb).float(), freeze=not fine_tune)
+            self.item_embedding = nn.Embedding.from_pretrained(torch.from_numpy(pretrained_item_emb).float(), freeze=not self.fine_tune)
         else:
             self.item_embedding = nn.Embedding(self.n_items, self.embedding_size)
         self.loss = BPRLoss()
-        self.l2_regularization = l2_regularization
-        self.hidden_layers = [64] if hidden_layers is None else hidden_layers 
+        # self.hidden_layers = [64] if self.hidden_layers is None else self.hidden_layers
         self.apply(xavier_normal_initialization)
 
         input_size = self.embedding_size * 2

@@ -25,23 +25,24 @@ class BPRptemb(GeneralRecommender):
     # model_type = ModelType.CONTEXT
     model_type = ModelType.GENERAL
     
-    def __init__(self, config, dataset, fine_tune=False, use_pretrained=True, l2_regularization=0.01):
+    def __init__(self, config, dataset):
         super(BPRptemb, self).__init__(config, dataset)
 
         self.n_users = dataset.user_num
         self.n_items = dataset.item_num
         self.embedding_size = config['embedding_size']
-
+        self.fine_tune = config['fine_tune']
+        self.use_pretrained = config['use_pretrained']
+        self.l2_regularization = config['l2_regularization']
         self.user_embedding = nn.Embedding(self.n_users, self.embedding_size)
 
-        if use_pretrained:
+        if self.use_pretrained:
             pretrained_item_emb = dataset.get_preload_weight('iid')
-            self.item_embedding = nn.Embedding.from_pretrained(torch.from_numpy(pretrained_item_emb).float(), freeze=not fine_tune)
+            self.item_embedding = nn.Embedding.from_pretrained(torch.from_numpy(pretrained_item_emb).float(), freeze=not self.fine_tune)
         else:
             self.item_embedding = nn.Embedding(self.n_items, self.embedding_size)
         
         self.loss = BPRLoss()
-        self.l2_regularization = l2_regularization
 
         self.apply(xavier_normal_initialization)
 
