@@ -73,6 +73,20 @@ class ConvNCF(GeneralRecommender):
         self.regs = config["reg_weights"]
         self.train_method = config["train_method"]
         self.pre_model_path = config["pre_model_path"]
+        self.split_to = config.get("split_to", 0)
+
+        # split the too large dataset into the specified pieces
+        if self.split_to > 0:
+            self.logger.info("split the n_items to {} pieces".format(self.split_to))
+            self.group = torch.chunk(
+                torch.arange(self.n_items).to(self.device), self.split_to
+            )
+        else:
+            self.logger.warning(
+                "Pay Attetion!! the `split_to` is set to 0. If you catch a OMM error in this case, "
+                + "you need to increase it \n\t\t\tuntil the error disappears. For example, "
+                + "you can append it in the command line such as `--split_to=5`"
+            )
 
         # define layers and loss
         assert self.train_method in ["after_pretrain", "no_pretrain"]
@@ -146,3 +160,77 @@ class ConvNCF(GeneralRecommender):
         user = interaction[self.USER_ID]
         item = interaction[self.ITEM_ID]
         return self.forward(user, item)
+
+    def full_sort_predict(self, interaction):
+        r"""Full sort predict function. Given dataloader, return the scores of all items for all users.
+
+        Args:
+            interaction (DataLoader): a pytorch dataloader which contains (user_tensor, item_tensor) tuple.
+
+        Returns:
+            torch.FloatTensor: the scores of all items for all users. The shape is [n_users, n_items].
+        """
+        user_scores = []
+        item_batches = []
+        batch_size = interaction.batch_size
+
+        # Iterate through dataloader to batch items
+        with torch.no_grad():
+            for batch_idx, (user_tensor, item_tensor) in enumerate(interaction):
+                item_batches.append(item_tensor)
+
+                # Predict scores if items are enough for a batch
+                if len(item_batches) == batch_size or batch_idx == len(interaction) - 1:
+                    item_tensor = torch.cat(item_batches, dim=0)
+                    user_tensor = user_tensor.expand(item_tensor.size(0))
+
+                    scores = self.forward(user_tensor, item_tensor)
+                    user_scores.append(scores)
+
+                    item_batches = []
+
+        # Concatenate scores and reshape to match the output shape [n_users, n_items]
+        user_scores = torch.cat(user_scores, dim=0)
+        return user_scores.reshape(-1, self.n_items)
+
+
+    # def full_sort_predict(self, interaction):
+    #     user = interaction[self.USER_ID]
+    #     item = interaction[self.ITEM_ID]
+    #     user_e = self.user_embedding(user)
+    #     item_e = self.item_embedding(item)
+
+    #     interaction_map = torch.bmm(user_e.unsqueeze(2), item_e.unsqueeze(1))
+    #     interaction_map = interaction_map.unsqueeze(1)
+
+    #     cnn_output = self.cnn_layers(interaction_map)
+    #     cnn_output = cnn_output.sum(axis=(2, 3))
+
+    #     prediction = self.predict_layers(cnn_output)
+    #     prediction = prediction.squeeze(-1)
+
+    #     return prediction
+    #     # user_inters = self.history_item_matrix[user]
+    #     # item_nums = self.history_lens[user]
+    #     scores = []
+
+    #     # test users one by one, if the number of items is too large, we will split it to some pieces
+    #     for user_input, item_num in zip(user_inters, item_nums.unsqueeze(1)):
+    #         if self.split_to <= 0:
+    #             output = self.user_forward(
+    #                 user_input[:item_num], item_num, repeats=self.n_items
+    #             )
+    #         else:
+    #             output = []
+    #             for mask in self.group:
+    #                 tmp_output = self.user_forward(
+    #                     user_input[:item_num],
+    #                     item_num,
+    #                     repeats=len(mask),
+    #                     pred_slc=mask,
+    #                 )
+    #                 output.append(tmp_output)
+    #             output = torch.cat(output, dim=0)
+    #         scores.append(output)
+    #     result = torch.cat(scores, dim=0)
+    #     return result
